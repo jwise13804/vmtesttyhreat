@@ -16,7 +16,7 @@
   'use strict';
 
   // ---------- Tokenizer ----------
-  const TIMESPAN_RE = /^(\d+(?:\.\d+)?)(ms|s|m|h|d|micosecond|tick)$/;
+  const TIMESPAN_RE = /^(\d+(?:\.\d+)?)(ms|s|m|h|d|microsecond|tick)$/;
 
   function tokenize(src) {
     const tokens = [];
@@ -61,6 +61,31 @@
         while (src[j] === '-' && /[A-Za-z]/.test(src[j + 1] || '')) {
           let k = j + 1; while (k < n && /[A-Za-z0-9_]/.test(src[k])) k++;
           word += src.slice(j, k); j = k;
+        }
+        // datetime(2024-01-15 10:30:00) / datetime(2015-12-31 23:59:59.9) — Microsoft's own canonical
+        // datetime-literal syntax example is exactly this unquoted "date space time" form, but the
+        // general expression grammar has no ':' operator to parse the time part with, and would
+        // otherwise fail with a confusing "expected ')'" error on syntax straight out of the docs.
+        // Special-case it at the tokenizer level: read the raw text up to the matching ')' and, if it
+        // isn't already a quoted string or the `null` keyword (datetime(null) stays handled the normal
+        // way), emit it as a single string token — same as if the user had written it quoted.
+        if (word === 'datetime') {
+          let k = j; while (k < n && (src[k] === ' ' || src[k] === '\t')) k++;
+          if (src[k] === '(') {
+            let depth = 1; let m = k + 1;
+            while (m < n && depth > 0) { if (src[m] === '(') depth++; else if (src[m] === ')') depth--; if (depth > 0) m++; }
+            if (depth === 0) {
+              const raw = src.slice(k + 1, m).trim();
+              if (raw && !/^["']/.test(raw) && !/^null$/i.test(raw) && /^[0-9][0-9:./TZ+\- ]*$/.test(raw)) {
+                tokens.push({ type: 'ident', value: word, pos: i });
+                tokens.push({ type: 'op', value: '(', pos: k });
+                tokens.push({ type: 'string', value: raw, pos: k + 1 });
+                tokens.push({ type: 'op', value: ')', pos: m });
+                i = m + 1;
+                continue;
+              }
+            }
+          }
         }
         tokens.push({ type: 'ident', value: word, pos: i });
         i = j;
@@ -275,8 +300,9 @@
         let dir = 'desc';
         if (this.isIdent('asc')) { this.next(); dir = 'asc'; }
         else if (this.isIdent('desc')) { this.next(); dir = 'desc'; }
-        if (this.isIdent('nulls')) { this.next(); this.next(); }
-        items.push({ expr, dir });
+        let nulls = null;
+        if (this.isIdent('nulls')) { this.next(); nulls = this.isIdent('first') ? 'first' : 'last'; this.next(); }
+        items.push({ expr, dir, nulls });
       };
       readOne();
       while (this.isOp(',')) { this.next(); readOne(); }
@@ -516,7 +542,10 @@
       case 'lit': return expr.value;
       case 'star': return '*';
       case 'col': {
-        if (!(expr.name in row)) {
+        // hasOwnProperty, not the `in` operator: `in` also matches inherited properties, so a column
+        // literally named "constructor"/"toString"/"hasOwnProperty"/etc. would silently resolve to the
+        // inherited Object.prototype function instead of correctly throwing "Column not found".
+        if (!Object.prototype.hasOwnProperty.call(row, expr.name)) {
           throw new KqlError(`Column not found: '${expr.name}'`);
         }
         return row[expr.name];
@@ -583,7 +612,11 @@
         const l = toStr(evalScalar(expr.left, row, ctx));
         const pat = toStr(evalScalar(expr.right, row, ctx));
         let res = false;
-        try { res = new RegExp(pat).test(l); } catch (e) { res = false; }
+        // Cheap ReDoS guard: a pathological pattern (e.g. "(a+)+b") run against JS's backtracking
+        // regex engine can hang the tab on a long-enough input. This can only ever hang the query
+        // author's own browser tab (self-DoS, no other visitor affected), but capping the tested
+        // string's length keeps a runaway match from being trivial to trigger by accident.
+        try { res = new RegExp(pat).test(l.length > 2000 ? l.slice(0, 2000) : l); } catch (e) { res = false; }
         return expr.neg ? !res : res;
       }
       case 'between': {
@@ -641,18 +674,22 @@
     }
   }
 
-  function isTermMatch(hay, needle) {
-    // approximate `has` term semantics: word-boundary match on alnum runs, case-insensitive
-    const terms = hay.toLowerCase().match(/[a-z0-9]+/g) || [];
-    return terms.includes(needle.toLowerCase());
+  // `has`/`has_cs` should differ ONLY in case sensitivity, not in what counts as a term boundary —
+  // per Microsoft's docs, a term is a maximal run of alphanumeric characters, and underscore is a
+  // delimiter (not part of a term) for both flavors. `has_cs` previously used a different regex that
+  // included underscore in terms, so e.g. "foo_bar" has_cs "foo_bar" wrongly matched (true) while
+  // "foo_bar" has "foo_bar" correctly didn't (false) — same string, same semantics, different answer.
+  function isTermMatch(hay, needle, caseSensitive) {
+    const terms = (caseSensitive ? hay : hay.toLowerCase()).match(/[a-zA-Z0-9]+/g) || [];
+    return terms.includes(caseSensitive ? needle : needle.toLowerCase());
   }
 
   function stringOp(name, l, r) {
     switch (name) {
       case 'contains': return l.toLowerCase().includes(r.toLowerCase());
       case 'contains_cs': return l.includes(r);
-      case 'has': return isTermMatch(l, r);
-      case 'has_cs': return (l.match(/[A-Za-z0-9_]+/g) || []).includes(r);
+      case 'has': return isTermMatch(l, r, false);
+      case 'has_cs': return isTermMatch(l, r, true);
       case 'startswith': return l.toLowerCase().startsWith(r.toLowerCase());
       case 'startswith_cs': return l.startsWith(r);
       case 'endswith': return l.toLowerCase().endsWith(r.toLowerCase());
@@ -670,10 +707,10 @@
       case 'ago': return new Date(now().getTime() - toNumber(ev(0)));
       case 'now': return a.length ? new Date(now().getTime() + toNumber(ev(0))) : now();
       case 'datetime': {
-        // datetime(2024-01-01) or datetime(2024-01-01 12:30:00) — the parser tokenizes the inside
-        // as arithmetic (2024-1-1), so we special-case by re-reading raw arg text isn't available here;
-        // instead accept ISO strings passed as literal strings too: datetime("2024-01-01")
-        if (a.length === 1 && a[0].type === 'lit' && typeof a[0].value === 'string') return new Date(a[0].value);
+        // datetime(2024-01-01) or datetime(2024-01-01 12:30:00) — the tokenizer special-cases the
+        // unquoted "date [space time]" form (see tokenize()) into a plain string literal here, and
+        // datetime("...") with an explicit quoted string works the same way.
+        if (a.length === 1 && a[0].type === 'lit' && typeof a[0].value === 'string') return parseKustoDatetime(a[0].value);
         // numeric arithmetic case (2024-01-01 parsed as 2024 - 01 - 01 = 2022): reconstruct from bin sub-tree
         const s = datetimeExprToIso(a[0]);
         return new Date(s);
@@ -715,6 +752,29 @@
     throw new KqlError(`Unsupported function: ${name}()`);
   }
 
+  // Real Kusto datetime literals are always UTC. An ISO string with an explicit 'T' and/or timezone
+  // (Z or +hh:mm) is unambiguous, so `new Date(...)` handles it correctly. But the space-separated
+  // "YYYY-MM-DD HH:MM:SS[.fraction]" form the tokenizer produces for an unquoted `datetime(2024-01-15
+  // 10:30:00)` literal is exactly the pattern JS's own Date constructor treats as LOCAL time when
+  // there's no 'T'/timezone marker — so naively doing `new Date(rawString)` here would silently give
+  // a different instant depending on the visitor's own timezone, when the whole point of a KQL
+  // datetime literal is that it means the same UTC instant for everyone. Parse the components
+  // ourselves and build the instant with Date.UTC() instead.
+  function parseKustoDatetime(str) {
+    const s = str.trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?)?\s*Z?$/);
+    if (m) {
+      const [, y, mo, d, h, mi, se] = m;
+      const seconds = se ? parseFloat(se) : 0;
+      const wholeSeconds = Math.floor(seconds);
+      const ms = Math.round((seconds - wholeSeconds) * 1000);
+      return new Date(Date.UTC(+y, +mo - 1, +d, h ? +h : 0, mi ? +mi : 0, wholeSeconds, ms));
+    }
+    // Already has an explicit timezone (Z/+hh:mm) or isn't in the plain form above — unambiguous,
+    // let the platform Date parser handle it (covers full ISO-8601 datetime("...Z") strings).
+    return new Date(s);
+  }
+
   function datetimeExprToIso(expr) {
     // handle patterns like (2024 - 1 - 1) or ((2024-1-1) something 12:30:00) minimally:
     // fallback — flatten arithmetic subtree into "Y-M-D" using bin op '-' nesting produced by tokenizer for "2024-01-01"
@@ -749,8 +809,13 @@
       case 'dcountif': return new Set(rows.filter(r => truthy(evalScalar(a[1], r, ctx))).map(r => toStr(evalScalar(a[0], r, ctx)))).size;
       case 'sum': return vals(0).reduce((s, v) => s + toNumber(v), 0);
       case 'sumif': return rows.filter(r => truthy(evalScalar(a[1], r, ctx))).reduce((s, r) => s + toNumber(evalScalar(a[0], r, ctx)), 0);
-      case 'avg': { const v = vals(0).map(toNumber).filter(x => !Number.isNaN(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; }
-      case 'avgif': { const v = rows.filter(r => truthy(evalScalar(a[1], r, ctx))).map(r => toNumber(evalScalar(a[0], r, ctx))); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; }
+      // Real Kusto's avg()/avgif() exclude nulls from both the sum and the count (confirmed against
+      // Microsoft's own summarize-operator doc example). toNumber(null) === 0, not NaN, so nulls must
+      // be dropped *before* the numeric conversion — converting first and NaN-filtering after would
+      // silently keep every null as a 0, dragging the average down whenever a column has gaps (which
+      // this dataset's normalize() deliberately fills with null for every unset field).
+      case 'avg': { const v = vals(0).filter(x => x !== null && x !== undefined).map(toNumber).filter(x => !Number.isNaN(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; }
+      case 'avgif': { const v = rows.filter(r => truthy(evalScalar(a[1], r, ctx))).map(r => evalScalar(a[0], r, ctx)).filter(x => x !== null && x !== undefined).map(toNumber).filter(x => !Number.isNaN(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; }
       case 'max': { const v = vals(0); return v.length ? v.reduce((m, x) => (m === null || x > m) ? x : m, null) : null; }
       case 'min': { const v = vals(0); return v.length ? v.reduce((m, x) => (m === null || x < m) ? x : m, null) : null; }
       case 'maxif': { const v = rows.filter(r => truthy(evalScalar(a[1], r, ctx))).map(r => evalScalar(a[0], r, ctx)); return v.length ? v.reduce((m, x) => (m === null || x > m) ? x : m, null) : null; }
@@ -854,8 +919,8 @@
           for (let i = 0; i < items.length; i++) {
             const dir = items[i].dir === 'asc' ? 1 : -1;
             const av = a.keys[i], bv = b.keys[i];
-            const c = compareForSort(av, bv);
-            if (c !== 0) return c * dir;
+            const c = compareSortKey(av, bv, dir, items[i].nulls);
+            if (c !== 0) return c;
           }
           return 0;
         });
@@ -868,8 +933,8 @@
         withKeys.sort((a, b) => {
           for (let i = 0; i < items.length; i++) {
             const dir = items[i].dir === 'asc' ? 1 : -1;
-            const c = compareForSort(a.keys[i], b.keys[i]);
-            if (c !== 0) return c * dir;
+            const c = compareSortKey(a.keys[i], b.keys[i], dir, items[i].nulls);
+            if (c !== 0) return c;
           }
           return 0;
         });
@@ -907,6 +972,24 @@
     if (typeof a === 'number' && typeof b === 'number') return a - b;
     const as = toStr(a), bs = toStr(b);
     return as < bs ? -1 : as > bs ? 1 : 0;
+  }
+
+  // Direction-and-nulls-aware comparator for a single sort key. `dir` is +1 (asc) or -1 (desc).
+  // `nullsPlacement` is 'first'/'last' when the query explicitly wrote `nulls first`/`nulls last`,
+  // or null to keep this engine's existing default (nulls sort as the smallest value, then the
+  // normal direction multiplier applies — asc puts them first, desc puts them last, which already
+  // matches Kusto's documented default). An explicit placement is absolute regardless of asc/desc,
+  // same as real Kusto — previously this modifier was parsed and silently discarded, so writing
+  // `sort by X asc nulls last` looked accepted but had no effect (stayed nulls-first).
+  function compareSortKey(av, bv, dir, nullsPlacement) {
+    const aNull = av === null || av === undefined;
+    const bNull = bv === null || bv === undefined;
+    if (aNull && bNull) return 0;
+    if (aNull || bNull) {
+      if (!nullsPlacement) return compareForSort(av, bv) * dir;
+      return nullsPlacement === 'first' ? (aNull ? -1 : 1) : (aNull ? 1 : -1);
+    }
+    return compareForSort(av, bv) * dir;
   }
 
   function applySummarize(op, rows, ctx) {
@@ -1037,9 +1120,15 @@
       rightIndex.get(k).push(rr);
     });
     function merge(lr, rr) {
+      // Real Kusto keeps BOTH copies of a same-named join key (left's under its own name, right's
+      // suffixed `<Key>1`) rather than collapsing them into one column — confirmed against Microsoft's
+      // own `join` doc example (`X | join Y on Key` → `Key, Value1, Key1, Value2`). The previous
+      // exemption for leftKeyFields silently overwrote the left key's value with the right's and never
+      // produced the `Key1` column real Kusto always adds, which would surprise a learner the first
+      // time they ran the equivalent query against a real workspace.
       const o = Object.assign({}, lr);
       for (const k of Object.keys(rr)) {
-        if (k in o && !leftKeyFields.includes(k)) o[k + '1'] = rr[k];
+        if (k in o) o[k + '1'] = rr[k];
         else o[k] = rr[k];
       }
       return o;

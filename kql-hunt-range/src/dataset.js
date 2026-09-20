@@ -2209,6 +2209,111 @@
     evidence('alert-v1', vSigninTs, 'Suspicious password reset followed by anomalous sign-in success', 'T1656;T1566.004', 'Microsoft Entra ID Protection', 'Identity Protection risk detection',
       { EntityType: 'User', EvidenceRole: 'Impacted', AccountUpn: 'lchen@fabrikam.example', RemoteIP: '203.0.113.140' });
 
+    // ---------- Additional background noise: a normal corporate network is far louder than any
+    // curated storyline needs it to be, and a few of this range's "obviously suspicious" artifacts
+    // (powershell.exe existing at all, any LogonFailed existing at all, external IPs outside the
+    // Azure-ish 20.x.x.x block) previously had NO benign counterpart anywhere in the baseline, which
+    // makes naive category filters accidentally look precise. This block only ADDS rows, using its
+    // own independently-seeded RNG (never the shared `rng` above), so it cannot perturb the timing,
+    // device assignment, or any other value any existing storyline/decoy/scenario already depends on
+    // — verified by re-running verify-scenarios.js after this block was added (0 regressions).
+    const rngNoise = mulberry32(90210);
+
+    // FAB-FIN-07 (Incident A: the powershell.exe/cdn-update-delivery.net beacon) and FAB-IT-01 /
+    // svc_backup (Incident B: the brute-force) are deliberately left OUT of the two noise categories
+    // below (benign PowerShell, benign failed logons) — several scenarios' solutionQueries filter on
+    // exactly "this device + this FileName" or "this account + LogonFailed" and assert a specific row
+    // count or join cardinality; adding more of the same on those specific device/account would change
+    // those counts. Every other device/account is fair game. (Verified: see verify-scenarios.js.)
+    const NOISE_SAFE_DEVICES = DEVICES.filter(d => d.name !== 'FAB-FIN-07' && d.name !== 'FAB-IT-01');
+
+    // Legitimate PowerShell usage: routine IT/DevOps scripting, unrelated to any incident or existing
+    // decoy. Ordinary, unencoded, unhidden command lines — the opposite shape of the attacker's
+    // `-nop -w hidden -enc ...` pattern, so "FileName == powershell.exe" alone stops being a tell.
+    const BENIGN_PS_CMDLINES = [
+      'powershell.exe -Command Get-Service | Where-Object {$_.Status -eq "Stopped"}',
+      'powershell.exe -File C:\\Scripts\\Get-DiskSpaceReport.ps1',
+      'powershell.exe -Command Get-ADUser -Filter * -Properties LastLogonDate',
+      'powershell.exe -File C:\\Scripts\\Rotate-BackupLogs.ps1',
+      'powershell.exe -Command Restart-Service -Name Spooler',
+      'powershell.exe -File C:\\Scripts\\Sync-OneDriveReport.ps1',
+      'powershell.exe -Command Get-EventLog -LogName System -Newest 50',
+      'powershell.exe -File C:\\Scripts\\Check-CertExpiry.ps1',
+    ];
+    for (let i = 0; i < 60; i++) {
+      const dev = pick(rngNoise, NOISE_SAFE_DEVICES);
+      const hoursAgo = rngNoise() * 120;
+      DeviceProcessEvents.push({
+        Timestamp: iso(hoursAgo), DeviceName: dev.name, ActionType: 'ProcessCreated',
+        FileName: 'powershell.exe', FolderPath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0',
+        SHA1: hex(rngNoise, 40), ProcessId: 1000 + Math.floor(rngNoise() * 8000),
+        ProcessCommandLine: pick(rngNoise, BENIGN_PS_CMDLINES),
+        AccountDomain: dev.domain, AccountName: dev.user,
+        InitiatingProcessFileName: 'cmd.exe', InitiatingProcessAccountName: dev.user,
+      });
+    }
+
+    // Everybody fat-fingers a password sometimes: scattered single/double LogonFailed events across
+    // many different accounts, low volume per account, internal-only (no external RemoteIP), spread
+    // across the window — so "any LogonFailed exists" stops being the brute-force tell; the real
+    // signal stays what it always was (7 failures then a success, all from the one external IP,
+    // in under 6 minutes, against svc_backup specifically).
+    const FAILURE_REASONS = ['Unknown user name or bad password', 'Account currently locked out'];
+    for (let i = 0; i < 45; i++) {
+      const dev = pick(rngNoise, NOISE_SAFE_DEVICES);
+      const hoursAgo = rngNoise() * 120;
+      DeviceLogonEvents.push({
+        Timestamp: iso(hoursAgo), DeviceName: dev.name, ActionType: 'LogonFailed',
+        LogonType: 'Interactive', AccountDomain: dev.domain, AccountName: dev.user,
+        RemoteIP: '', IsLocalAdmin: false, FailureReason: pick(rngNoise, FAILURE_REASONS),
+      });
+    }
+
+    // More baseline volume + IP-range diversity for benign network noise, so "external IP" alone
+    // isn't a giveaway either (the two incident IPs, 203.0.113.55 and 198.51.100.23, are the only
+    // ones in their /24s — real fleets talk to plenty of other external ranges all day).
+    const BENIGN_IP_PREFIXES = ['20.', '52.', '13.', '104.'];
+    for (let i = 0; i < 130; i++) {
+      const dev = pick(rngNoise, DEVICES);
+      const domain = pick(rngNoise, BENIGN_DOMAINS);
+      const hoursAgo = rngNoise() * 120;
+      DeviceNetworkEvents.push({
+        Timestamp: iso(hoursAgo), DeviceName: dev.name, ActionType: 'ConnectionSuccess',
+        RemoteIP: `${pick(rngNoise, BENIGN_IP_PREFIXES)}${Math.floor(rngNoise() * 200) + 1}.${Math.floor(rngNoise() * 200)}.${Math.floor(rngNoise() * 254) + 1}`,
+        RemotePort: 443, RemoteUrl: domain, Protocol: 'Tcp',
+        InitiatingProcessFileName: pick(rngNoise, BENIGN_PROCS).f, InitiatingProcessAccountName: dev.user,
+      });
+    }
+
+    // More routine file and email traffic at the same baseline shape as the original generator —
+    // just more of it, so browsing an unfiltered table doesn't feel sparse.
+    const NOISE_FILE_NAMES = ['status-update.docx', 'expense-report.xlsx', 'team-photo.jpg', 'agenda.docx',
+      'vendor-contract.pdf', 'presentation-draft.pptx', 'notes.txt', 'weekly-standup.docx'];
+    for (let i = 0; i < 110; i++) {
+      const dev = pick(rngNoise, DEVICES);
+      const hoursAgo = rngNoise() * 120;
+      DeviceFileEvents.push({
+        Timestamp: iso(hoursAgo), DeviceName: dev.name, ActionType: pick(rngNoise, ['FileCreated', 'FileModified']),
+        FileName: pick(rngNoise, NOISE_FILE_NAMES), FolderPath: `C:\\Users\\${dev.user}\\Documents`,
+        SHA1: hex(rngNoise, 40), FileSize: Math.floor(rngNoise() * 500000) + 1000,
+        InitiatingProcessFileName: pick(rngNoise, BENIGN_PROCS).f, InitiatingProcessAccountName: dev.user,
+      });
+    }
+    const NOISE_SUBJECTS = ['Re: Q3 planning', 'Calendar invite: 1:1', 'FYI', 'Out of office next week',
+      'Expense report approved', 'Building maintenance notice', 'New hire welcome'];
+    for (let i = 0; i < 90; i++) {
+      const dev = pick(rngNoise, DEVICES);
+      const sender = pick(rngNoise, BENIGN_SENDERS);
+      const hoursAgo = rngNoise() * 120;
+      EmailEvents.push({
+        Timestamp: iso(hoursAgo), NetworkMessageId: hex(rngNoise, 32),
+        SenderFromAddress: sender.addr, SenderDisplayName: sender.name, SenderFromDomain: sender.domain,
+        RecipientEmailAddress: `${dev.user}@fabrikam.example`, Subject: pick(rngNoise, NOISE_SUBJECTS),
+        DeliveryAction: 'Delivered', DeliveryLocation: 'Inbox/Folder',
+        ThreatTypes: '', DetectionMethods: '', AttachmentCount: rngNoise() > 0.7 ? 1 : 0, UrlCount: rngNoise() > 0.8 ? 1 : 0,
+      });
+    }
+
     const deviceIdOf = (name) => {
       const rng2 = mulberry32(hashStr(name));
       return hex(rng2, 8) + '-' + hex(rng2, 4) + '-guid';

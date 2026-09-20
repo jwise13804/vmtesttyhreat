@@ -451,7 +451,11 @@
         if (s.multiStep && !isDone) {
           sub = 'Step ' + (currentStepIndex(s) + 1) + '/' + s.steps.length + ' · ' + sub;
         }
-        el.innerHTML = '<div class="scn-item-title">' + done + '<span>' + s.title + '</span></div><div class="scn-item-sub">' + sub + '</div>';
+        // escapeHtml(s.title): every other render site for a scenario title does this (shift queue,
+        // learning matrix, learning paths) — this one didn't, and s.title can come from the optional
+        // Claude-generated-scenario feature (an LLM response steered by free user text), so an
+        // unescaped title here was a real (low-severity, self-XSS-only) injection path.
+        el.innerHTML = '<div class="scn-item-title">' + done + '<span>' + escapeHtml(s.title) + '</span></div><div class="scn-item-sub">' + escapeHtml(sub) + '</div>';
         el.addEventListener('click', () => selectScenario(s));
         pane.appendChild(el);
       });
@@ -967,7 +971,7 @@
       '<ul><li>strings: <code>strcat() tostring() strlen() substring() split() tolower() toupper()</code></li>' +
       '<li>aggregations (inside summarize): <code>count() countif() dcount() sum() avg() max() min() make_set() make_list() arg_max() arg_min()</code></li>' +
       '<li>logic: <code>case() iif() / iff() coalesce() isempty() isnotempty() isnull() isnotnull()</code></li></ul>' +
-      '<p style="color:var(--text-faint)">This range implements a teaching subset of KQL — enough to cover everything KC7 missions typically ask for. Not supported here: dynamic/JSON columns (so no <code>parse_json()</code> or bracket member-access on columns like AuditLogs.TargetResources), <code>parse</code>, <code>extract()</code>, <code>mv-expand</code>, <code>materialize</code>, window functions, and geospatial functions. If a real portal query fails only here, it\'s likely leaning on one of those.</p>' +
+      '<p style="color:var(--text-faint)">This range implements a teaching subset of KQL — enough to cover everything KC7 missions typically ask for. Not supported here: dynamic/JSON columns (so no <code>parse_json()</code> or bracket member-access on columns like AuditLogs.TargetResources), <code>parse</code>, <code>extract()</code>, <code>mv-expand</code>, <code>materialize</code>, window functions, geospatial functions, <code>print</code>, <code>datatable</code>, the <code>search</code> operator, and user-defined <code>let</code> functions (<code>let</code> here only binds scalars/tables, not <code>(x:long) {{ ... }}</code>-style functions). If a real portal query fails only here, it\'s likely leaning on one of those.</p>' +
       '<div class="src">Verified against Microsoft Learn: ' +
       '<a href="https://learn.microsoft.com/kusto/query/kql-quick-reference" target="_blank">KQL quick reference</a>, ' +
       '<a href="https://learn.microsoft.com/kusto/query/where-operator" target="_blank">where</a>, ' +
@@ -982,6 +986,17 @@
   renderCheatSheet();
   document.getElementById('btnCheat').addEventListener('click', () => { document.getElementById('cheatModal').hidden = false; });
   document.getElementById('btnCloseCheat').addEventListener('click', () => { document.getElementById('cheatModal').hidden = true; });
+
+  // ---------------- modal close: top-right ✕ on every modal, plus Escape ----------------
+  // The bottom "Close" button stays (some modals pair it with another action, e.g. genModal's
+  // Cancel/Generate), but every modal now also gets a clearer, always-in-the-same-spot ✕ up top.
+  document.querySelectorAll('.modal-x').forEach(btn => {
+    btn.addEventListener('click', () => { btn.closest('.modal-backdrop').hidden = true; });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.modal-backdrop:not([hidden])').forEach(m => { m.hidden = true; });
+  });
 
   // ---------------- theme toggle ----------------
   (function initTheme() {

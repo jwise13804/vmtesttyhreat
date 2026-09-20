@@ -218,8 +218,10 @@ table.results td.null{color:var(--text-faint);font-style:italic}
 
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:100}
 .modal-backdrop[hidden]{display:none}
-.modal{background:var(--panel);border:1px solid var(--border);border-radius:12px;max-width:560px;width:92%;max-height:80vh;overflow-y:auto;padding:20px}
-.modal h3{margin:0 0 10px;font-size:15px}
+.modal{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:12px;max-width:560px;width:92%;max-height:80vh;overflow-y:auto;padding:20px}
+.modal-x{position:absolute;top:10px;right:10px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:8px;background:var(--panel-alt);color:var(--text-dim);font-size:14px;line-height:1;cursor:pointer}
+.modal-x:hover{color:var(--accent-fg);background:var(--accent);border-color:var(--accent)}
+.modal h3{margin:0 26px 10px 0;font-size:15px}
 .modal p{font-size:13px;color:var(--text-dim);line-height:1.6}
 .modal textarea{width:100%;min-height:70px;font-family:var(--sans);font-size:13px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--panel-alt);color:var(--text);resize:vertical}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}

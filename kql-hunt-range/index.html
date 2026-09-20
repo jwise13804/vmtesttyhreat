@@ -97,6 +97,7 @@
 
 <div class="modal-backdrop" id="cheatModal" hidden>
   <div class="modal">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>KQL quick reference (this practice range's supported subset)</h3>
     <div class="cheatsheet" id="cheatContent"></div>
     <div class="modal-actions"><button class="iconbtn" id="btnCloseCheat">Close</button></div>
@@ -105,6 +106,7 @@
 
 <div class="modal-backdrop" id="coverageModal" hidden>
   <div class="modal">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>ATT&amp;CK coverage — MITRE ATT&amp;CK Enterprise v19</h3>
     <p>Each completed mission's technique lights up the tactic(s) it belongs to. Green = you've closed a mission covering that tactic; amber = a mission touches it but isn't done yet; gray = nothing in this range currently covers it.</p>
     <div id="coverageContent"></div>
@@ -114,6 +116,7 @@
 
 <div class="modal-backdrop" id="learningMatrixModal" hidden>
   <div class="modal" style="max-width:760px">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>📊 Learning Matrix</h3>
     <p>What each mission teaches, grouped by cyber-analyst domain: the career-track discipline it exercises, the KQL language features (<code>teaches</code>), and the practical cyber-analyst skill it builds. Use the sidebar filter to show only missions for a domain or discipline you want to focus on.</p>
     <div id="learningMatrixContent"></div>
@@ -123,6 +126,7 @@
 
 <div class="modal-backdrop" id="learningPathsModal" hidden>
   <div class="modal" style="max-width:760px">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>🛤 Learning Paths</h3>
     <p>Curated mission sequences built on top of this range's own domain/discipline tags — five guided tracks through the same missions in the sidebar, in a deliberate order, each ending in a badge. Click any mission below to jump straight to it.</p>
     <div id="learningPathsContent"></div>
@@ -132,6 +136,7 @@
 
 <div class="modal-backdrop" id="detectionModal" hidden>
   <div class="modal">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>🔬 Detection Lab</h3>
     <p>Write a query meant to run continuously — a detection, not a one-off hunt — then test it against the full noisy dataset (real incident activity, plus everything benign around it) and see its precision and recall.</p>
     <div id="detectionContent"></div>
@@ -141,6 +146,7 @@
 
 <div class="modal-backdrop" id="badgesModal" hidden>
   <div class="modal">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>🏅 Achievements</h3>
     <p>Fun side-goals, not graded — earned by playing the range like a real analyst would.</p>
     <div id="badgesContent"></div>
@@ -150,6 +156,7 @@
 
 <div class="modal-backdrop" id="genModal" hidden>
   <div class="modal">
+    <button class="modal-x" aria-label="Close" title="Close">✕</button>
     <h3>Generate a new scenario</h3>
     <p>Claude will write a fresh investigative question against this same dataset, then this page runs Claude's own solution query through the local engine to build a verified answer key — same as every built-in scenario.</p>
     <textarea id="genTopic" placeholder="Optional: steer it — e.g. &quot;something about EmailEvents&quot; or &quot;a join-based question&quot;"></textarea>

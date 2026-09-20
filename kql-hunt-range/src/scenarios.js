@@ -309,7 +309,7 @@
     "solutionQuery": "DeviceProcessEvents\n| summarize Events = count() by DeviceName\n| top 1 by Events",
     "facts": [
       "fab-fin-04",
-      "48"
+      "57"
     ],
     "teaches": [
       "summarize",
