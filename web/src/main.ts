@@ -734,6 +734,7 @@ document.querySelector("#btn-clear-note")!.addEventListener("click", () => {
 const mainViewEl = document.querySelector<HTMLDivElement>("#main-view")!;
 const huntsViewEl = document.querySelector<HTMLDivElement>("#hunts-view")!;
 const viewToggleBtn = document.querySelector<HTMLButtonElement>("#btn-view-hunts")!;
+const fabGroupEl = document.querySelector<HTMLDivElement>(".fab-group")!;
 let currentView: "editor" | "hunts" = "editor";
 
 function updateViewToggleButton() {
@@ -744,6 +745,7 @@ function showEditorView() {
   mainViewEl.classList.remove("hidden");
   tabBar.classList.remove("hidden");
   huntsViewEl.classList.add("hidden");
+  fabGroupEl.classList.remove("hidden");
   updateViewToggleButton();
 }
 function showHuntsView() {
@@ -751,6 +753,7 @@ function showHuntsView() {
   mainViewEl.classList.add("hidden");
   tabBar.classList.add("hidden");
   huntsViewEl.classList.remove("hidden");
+  fabGroupEl.classList.add("hidden");
   updateViewToggleButton();
 }
 viewToggleBtn.addEventListener("click", () => (currentView === "editor" ? showHuntsView() : showEditorView()));
