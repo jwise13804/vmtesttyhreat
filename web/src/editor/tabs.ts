@@ -15,7 +15,7 @@ import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/sea
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { iocHighlighter } from "./highlight";
 import { darkTheme, lightTheme } from "./theme";
-import type { Settings, TabState } from "../core/storage";
+import type { IncidentSeverity, Settings, TabState } from "../core/storage";
 
 let tabCounter = 0;
 export function newTabId(): string {
@@ -28,6 +28,7 @@ interface OpenTab {
   title: string;
   state: EditorState;
   fileHandle?: FileSystemFileHandle;
+  severity: IncidentSeverity;
 }
 
 export class TabManager {
@@ -81,10 +82,20 @@ export class TabManager {
 
   createTab(title: string, content = "", fileHandle?: FileSystemFileHandle): string {
     const id = newTabId();
-    this.tabs.push({ id, title, state: this.createState(content), fileHandle });
+    this.tabs.push({ id, title, state: this.createState(content), fileHandle, severity: "none" });
     this.switchTab(id);
     this.onTabsUpdated();
     return id;
+  }
+
+  getSeverity(id?: string): IncidentSeverity {
+    const targetId = id ?? this.activeId;
+    return this.tabs.find((t) => t.id === targetId)?.severity ?? "none";
+  }
+
+  setSeverity(id: string, severity: IncidentSeverity): void {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (tab) tab.severity = severity;
   }
 
   attachFileHandle(id: string, handle: FileSystemFileHandle): void {
@@ -188,11 +199,16 @@ export class TabManager {
       const current = this.tabs.find((t) => t.id === this.activeId);
       if (current) current.state = this.view.state;
     }
-    return this.tabs.map((t) => ({ id: t.id, title: t.title, content: t.state.doc.toString() }));
+    return this.tabs.map((t) => ({ id: t.id, title: t.title, content: t.state.doc.toString(), severity: t.severity }));
   }
 
   restore(tabs: TabState[], activeId: string | null): void {
-    this.tabs = tabs.map((t) => ({ id: t.id, title: t.title, state: this.createState(t.content) }));
+    this.tabs = tabs.map((t) => ({
+      id: t.id,
+      title: t.title,
+      state: this.createState(t.content),
+      severity: t.severity ?? "none",
+    }));
     this.activeId = null;
     const target = tabs.find((t) => t.id === activeId) ?? tabs[0];
     if (target) this.switchTab(target.id);

@@ -3,10 +3,14 @@
 
 import type { ClientMap } from "./clients";
 
+// "high" carries the 15-minute SLA the status-bar timer escalates against.
+export type IncidentSeverity = "none" | "low" | "medium" | "high";
+
 export interface TabState {
   id: string;
   title: string;
   content: string;
+  severity?: IncidentSeverity;
 }
 
 export interface SessionState {

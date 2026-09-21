@@ -457,11 +457,18 @@ export function initPhase3(ctx: Phase3Context): Phase3Hooks {
     trafficLight.style.boxShadow = color === "#555555" ? "none" : `0 0 8px ${color}`;
   }
 
+  // High-severity tabs track a 15-minute SLA: on-track green, then amber, then
+  // a red flash that speeds up as 15:00 approaches, then fades to muted grey
+  // past the SLA — by then it may have turned out to not be a High after all.
+  const HIGH_SLA_SECONDS = 15 * 60;
+  const TIMER_FLASH_CLASSES = ["timer-flash-warn", "timer-flash-critical", "timer-faded"];
+
   function updateTimer() {
     const id = tabs.activeTabId();
     if (!id) {
       timerDisplay.textContent = "⏱ --:--";
       timerDisplay.style.color = "";
+      timerDisplay.classList.remove(...TIMER_FLASH_CLASSES);
       return;
     }
     if (!tabStartTimes.has(id)) tabStartTimes.set(id, Date.now());
@@ -470,12 +477,35 @@ export function initPhase3(ctx: Phase3Context): Phase3Hooks {
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
+    const label = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    timerDisplay.textContent = `⏱ ${label}`;
+    timerDisplay.classList.remove(...TIMER_FLASH_CLASSES);
+
+    if (tabs.getSeverity(id) === "high") {
+      const pct = totalSeconds / HIGH_SLA_SECONDS;
+      if (totalSeconds >= HIGH_SLA_SECONDS) {
+        // Past the 15-minute SLA — fade out rather than stay alarmed; it may
+        // no longer be a High.
+        timerDisplay.style.color = "";
+        timerDisplay.classList.add("timer-faded");
+      } else if (pct >= 0.93) {
+        timerDisplay.style.color = "#ff3344";
+        timerDisplay.classList.add("timer-flash-critical");
+      } else if (pct >= 0.8) {
+        timerDisplay.style.color = "#ff6644";
+        timerDisplay.classList.add("timer-flash-warn");
+      } else if (pct >= 0.6) {
+        timerDisplay.style.color = "#ffaa44";
+      } else {
+        timerDisplay.style.color = "#88aa88";
+      }
+      return;
+    }
+
     let color = "#88aa88";
     if (h >= 1) color = "#ff9944";
     else if (m >= 30) color = "#ff6644";
     else if (m >= 15) color = "#ffaa44";
-    const label = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    timerDisplay.textContent = `⏱ ${label}`;
     timerDisplay.style.color = color;
   }
 

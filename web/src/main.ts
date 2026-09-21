@@ -25,6 +25,7 @@ import {
   saveSettings,
   saveSnippets,
   saveTemplates,
+  type IncidentSeverity,
   type Settings,
 } from "./core/storage";
 import { initPhase3, type Phase3Hooks } from "./ui/phase3";
@@ -142,6 +143,12 @@ app.innerHTML = `
     <span id="status-left">Ready</span>
     <span class="status-right-group">
       <span id="traffic-light" class="traffic-dot" title="Content safety indicator"></span>
+      <select id="severity-select" title="Incident severity for this tab — High starts a 15-minute SLA timer">
+        <option value="none">No Severity</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High — 15m SLA</option>
+      </select>
       <span id="timer-display">⏱ --:--</span>
       <span id="status-right"></span>
     </span>
@@ -160,6 +167,7 @@ const statusLeft = document.querySelector<HTMLSpanElement>("#status-left")!;
 const statusRight = document.querySelector<HTMLSpanElement>("#status-right")!;
 const themeBtn = document.querySelector<HTMLButtonElement>("#btn-theme")!;
 const fileInput = document.querySelector<HTMLInputElement>("#file-input")!;
+const severitySelect = document.querySelector<HTMLSelectElement>("#severity-select")!;
 
 // ---------------------------------------------------------------------------
 // Toolbar dropdown menus
@@ -192,8 +200,19 @@ const tabs = new TabManager(editorContainer, settings, {
   },
   onTabsUpdated: () => {
     renderTabBar();
+    updateSeveritySelect();
     persistSession();
   },
+});
+
+function updateSeveritySelect() {
+  severitySelect.value = tabs.getSeverity();
+}
+severitySelect.addEventListener("change", () => {
+  const id = tabs.activeTabId();
+  if (!id) return;
+  tabs.setSeverity(id, severitySelect.value as IncidentSeverity);
+  persistSession();
 });
 
 const session = loadSession();
@@ -881,6 +900,14 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
       <p class="help-footnote">The traffic-light dot and timer in the status bar reflect the active
       tab: grey = empty, green = clean, amber = undefanged IOCs present, red = cross-client
       contamination detected.</p>
+
+      <h4>Incident Severity &amp; SLA Timer</h4>
+      <p class="help-footnote">Each tab has its own severity, set from the status bar dropdown next
+      to the timer. Set a tab to <b>High</b> and its timer tracks a 15-minute SLA: green while
+      there's time to spare, amber as it gets closer, then a red flash that speeds up in the final
+      minute before 15:00. Past 15 minutes the timer fades to a muted grey rather than staying
+      alarmed — by then it may no longer be a High. Low/Medium/No Severity tabs just show a plain
+      elapsed-time timer with no SLA.</p>
     </div>
     <div class="modal-actions">
       <button class="primary" id="help-close">Close</button>
