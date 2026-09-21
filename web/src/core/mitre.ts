@@ -307,3 +307,97 @@ export const MITRE_TECHNIQUE_BY_ID: Record<string, MitreTechnique> = Object.from
 export function techniquesForTactic(tacticName: string): MitreTechnique[] {
   return MITRE_TECHNIQUES.filter((t) => t.tactics.includes(tacticName));
 }
+
+// -----------------------------------------------------------------------
+// Sub-techniques — a much smaller curated set (only the parents most likely
+// to come up in practice, generally the ones the default playbooks already
+// reference), not full coverage of every parent technique's children.
+// -----------------------------------------------------------------------
+export interface MitreSubTechnique {
+  id: string; // e.g. "T1059.001"
+  name: string;
+  parentId: string; // e.g. "T1059"
+}
+
+export const MITRE_SUBTECHNIQUES: MitreSubTechnique[] = [
+  // T1059 Command and Scripting Interpreter
+  { id: "T1059.001", name: "PowerShell", parentId: "T1059" },
+  { id: "T1059.003", name: "Windows Command Shell", parentId: "T1059" },
+  { id: "T1059.004", name: "Unix Shell", parentId: "T1059" },
+  { id: "T1059.006", name: "Python", parentId: "T1059" },
+  { id: "T1059.007", name: "JavaScript", parentId: "T1059" },
+
+  // T1053 Scheduled Task/Job
+  { id: "T1053.003", name: "Cron", parentId: "T1053" },
+  { id: "T1053.005", name: "Scheduled Task", parentId: "T1053" },
+
+  // T1003 OS Credential Dumping
+  { id: "T1003.001", name: "LSASS Memory", parentId: "T1003" },
+  { id: "T1003.002", name: "Security Account Manager", parentId: "T1003" },
+  { id: "T1003.003", name: "NTDS", parentId: "T1003" },
+  { id: "T1003.004", name: "LSA Secrets", parentId: "T1003" },
+  { id: "T1003.006", name: "DCSync", parentId: "T1003" },
+
+  // T1078 Valid Accounts
+  { id: "T1078.001", name: "Default Accounts", parentId: "T1078" },
+  { id: "T1078.002", name: "Domain Accounts", parentId: "T1078" },
+  { id: "T1078.003", name: "Local Accounts", parentId: "T1078" },
+  { id: "T1078.004", name: "Cloud Accounts", parentId: "T1078" },
+
+  // T1021 Remote Services
+  { id: "T1021.001", name: "Remote Desktop Protocol", parentId: "T1021" },
+  { id: "T1021.002", name: "SMB/Windows Admin Shares", parentId: "T1021" },
+  { id: "T1021.004", name: "SSH", parentId: "T1021" },
+  { id: "T1021.006", name: "Windows Remote Management", parentId: "T1021" },
+
+  // T1071 Application Layer Protocol
+  { id: "T1071.001", name: "Web Protocols", parentId: "T1071" },
+  { id: "T1071.002", name: "File Transfer Protocols", parentId: "T1071" },
+  { id: "T1071.004", name: "DNS", parentId: "T1071" },
+
+  // T1027 Obfuscated Files or Information
+  { id: "T1027.001", name: "Binary Padding", parentId: "T1027" },
+  { id: "T1027.002", name: "Software Packing", parentId: "T1027" },
+  { id: "T1027.003", name: "Steganography", parentId: "T1027" },
+
+  // T1036 Masquerading
+  { id: "T1036.003", name: "Rename System Utilities", parentId: "T1036" },
+  { id: "T1036.005", name: "Match Legitimate Name or Location", parentId: "T1036" },
+
+  // T1055 Process Injection
+  { id: "T1055.001", name: "Dynamic-link Library Injection", parentId: "T1055" },
+  { id: "T1055.002", name: "Portable Executable Injection", parentId: "T1055" },
+
+  // T1547 Boot or Logon Autostart Execution
+  { id: "T1547.001", name: "Registry Run Keys / Startup Folder", parentId: "T1547" },
+
+  // T1562 Impair Defenses
+  { id: "T1562.001", name: "Disable or Modify Tools", parentId: "T1562" },
+  { id: "T1562.004", name: "Disable or Modify System Firewall", parentId: "T1562" },
+
+  // T1070 Indicator Removal
+  { id: "T1070.001", name: "Clear Windows Event Logs", parentId: "T1070" },
+  { id: "T1070.004", name: "File Deletion", parentId: "T1070" },
+
+  // T1204 User Execution
+  { id: "T1204.001", name: "Malicious Link", parentId: "T1204" },
+  { id: "T1204.002", name: "Malicious File", parentId: "T1204" },
+];
+
+export const MITRE_SUBTECHNIQUE_BY_ID: Record<string, MitreSubTechnique> = Object.fromEntries(
+  MITRE_SUBTECHNIQUES.map((t) => [t.id, t]),
+);
+
+export function subTechniquesForParent(parentId: string): MitreSubTechnique[] {
+  return MITRE_SUBTECHNIQUES.filter((t) => t.parentId === parentId);
+}
+
+/** Looks up either a top-level technique or a sub-technique by id. */
+export function mitreEntryById(id: string): { id: string; name: string } | undefined {
+  return MITRE_TECHNIQUE_BY_ID[id] ?? MITRE_SUBTECHNIQUE_BY_ID[id];
+}
+
+/** True if `tag` is `parentId` itself, or one of its sub-technique ids (e.g. "T1059.001" for parent "T1059"). */
+export function tagCoversTechnique(tag: string, parentId: string): boolean {
+  return tag === parentId || tag.startsWith(`${parentId}.`);
+}

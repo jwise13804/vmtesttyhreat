@@ -849,9 +849,17 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
       <h4>Threat Hunting</h4>
       <ul>
         <li><b>🎯 Hunts</b> (top-left) — switch to the full hunt tracker: log hunts with a
-        hypothesis, MITRE ATT&amp;CK tags, data sources, queries, and findings; a
-        <b>Coverage</b> view showing which techniques you've actually hunted; and a
-        <b>Playbooks</b> library of reusable hunt starting points</li>
+        hypothesis, MITRE ATT&amp;CK tags (including a curated set of sub-techniques), data
+        sources, queries, findings, a <b>priority</b>, and an optional <b>recurring</b> revisit
+        interval (a "⏰ Due" badge appears once it elapses); search and filter the list by
+        status, priority, or due-only</li>
+        <li><b>🗺 Coverage</b> — a technique heatmap by tactic; closed coverage fades as it ages
+        (30/90 days) so a hunt from months ago doesn't look as current as one from yesterday</li>
+        <li><b>📖 Playbooks</b> — a library of reusable hunt starting points, one click to spin
+        up a pre-filled hunt</li>
+        <li><b>⬇ Backup / ⬆ Restore / 📄 All Hunts Report</b> (top-right of the Hunts view) —
+        export everything as a JSON backup, restore from one (merges by id, never overwrites),
+        or download every hunt as one combined text report</li>
       </ul>
 
       <h4>Menus</h4>

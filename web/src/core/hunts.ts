@@ -4,7 +4,7 @@
 // what you ran, what you found, and how it maps to MITRE ATT&CK.
 
 import { extractIocs, IOC_LABELS, type IocMatch } from "./iocPatterns";
-import { MITRE_TECHNIQUE_BY_ID } from "./mitre";
+import { mitreEntryById, tagCoversTechnique } from "./mitre";
 
 export type HuntStatus = "open" | "in_progress" | "closed";
 
@@ -14,16 +14,26 @@ export const HUNT_STATUS_LABELS: Record<HuntStatus, string> = {
   closed: "Closed",
 };
 
+export type HuntPriority = "low" | "medium" | "high";
+
+export const HUNT_PRIORITY_LABELS: Record<HuntPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+};
+
 export interface Hunt {
   id: string;
   title: string;
   hypothesis: string;
-  techniques: string[]; // MITRE technique IDs, e.g. "T1059"
+  techniques: string[]; // MITRE technique or sub-technique IDs, e.g. "T1059" or "T1059.001"
   dataSources: string[];
   queries: string; // freeform KQL/query text, one or more queries
   findings: string;
   iocs: IocMatch[]; // snapshot captured from findings via "Extract IOCs"
   status: HuntStatus;
+  priority: HuntPriority;
+  recurringDays?: number; // if set, this hunt is due again `recurringDays` after updatedAt
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
@@ -170,9 +180,16 @@ export function emptyHunt(): Hunt {
     findings: "",
     iocs: [],
     status: "open",
+    priority: "medium",
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/** True once a recurring hunt's revisit interval has elapsed since it was last saved. */
+export function isDueForReview(hunt: Hunt): boolean {
+  if (!hunt.recurringDays || hunt.recurringDays <= 0) return false;
+  return daysSince(hunt.updatedAt) >= hunt.recurringDays;
 }
 
 export function huntFromPlaybook(pb: Playbook): Hunt {
@@ -198,7 +215,9 @@ export interface TechniqueCoverage {
 
 export function computeCoverage(hunts: Hunt[], techniqueIds: string[]): TechniqueCoverage[] {
   return techniqueIds.map((id) => {
-    const related = hunts.filter((h) => h.techniques.includes(id));
+    // A hunt tagged with a sub-technique (e.g. "T1059.001") also counts
+    // toward its parent's coverage (e.g. "T1059").
+    const related = hunts.filter((h) => h.techniques.some((t) => tagCoversTechnique(t, id)));
     let status: CoverageStatus = "never";
     if (related.some((h) => h.status === "closed")) status = "closed";
     else if (related.length > 0) status = "open";
@@ -212,6 +231,19 @@ export function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
 
+// A "closed" technique fades over time rather than staying a flat green
+// forever — hunted-yesterday and hunted-six-months-ago shouldn't look the
+// same on the coverage grid.
+export type CoverageFreshness = "fresh" | "aging" | "stale";
+
+export function coverageFreshness(lastHuntedAt: string | null): CoverageFreshness {
+  if (!lastHuntedAt) return "fresh";
+  const days = daysSince(lastHuntedAt);
+  if (days >= 90) return "stale";
+  if (days >= 30) return "aging";
+  return "fresh";
+}
+
 // -----------------------------------------------------------------------
 // Mileage-style stats
 // -----------------------------------------------------------------------
@@ -223,6 +255,7 @@ export interface HuntStats {
   techniquesCovered: number;
   techniquesTotal: number;
   avgTimeToCloseHours: number | null;
+  dueForReview: number;
 }
 
 export function computeHuntStats(hunts: Hunt[], totalTechniques: number): HuntStats {
@@ -248,6 +281,7 @@ export function computeHuntStats(hunts: Hunt[], totalTechniques: number): HuntSt
     techniquesCovered,
     techniquesTotal: totalTechniques,
     avgTimeToCloseHours,
+    dueForReview: hunts.filter(isDueForReview).length,
   };
 }
 
@@ -258,24 +292,24 @@ export function extractHuntIocs(hunt: Hunt): IocMatch[] {
   return extractIocs(hunt.findings);
 }
 
+function techniqueLabel(id: string): string {
+  const t = mitreEntryById(id);
+  return t ? `${id} — ${t.name}` : id;
+}
+
 export function buildHuntReport(hunt: Hunt): string {
-  const techniqueLines = hunt.techniques.length
-    ? hunt.techniques
-        .map((id) => {
-          const t = MITRE_TECHNIQUE_BY_ID[id];
-          return t ? `${id} — ${t.name}` : id;
-        })
-        .join(", ")
-    : "(none tagged)";
+  const techniqueLines = hunt.techniques.length ? hunt.techniques.map(techniqueLabel).join(", ") : "(none tagged)";
 
   const lines: string[] = [
     "=== THREAT HUNT REPORT ===",
     `Title: ${hunt.title}`,
     `Status: ${HUNT_STATUS_LABELS[hunt.status]}`,
+    `Priority: ${HUNT_PRIORITY_LABELS[hunt.priority]}`,
     `Created: ${hunt.createdAt}`,
     `Updated: ${hunt.updatedAt}`,
   ];
   if (hunt.closedAt) lines.push(`Closed: ${hunt.closedAt}`);
+  if (hunt.recurringDays) lines.push(`Recurring: every ${hunt.recurringDays} day(s)`);
   lines.push(`MITRE ATT&CK Techniques: ${techniqueLines}`, "");
   lines.push("--- HYPOTHESIS ---", hunt.hypothesis || "(none)", "");
   lines.push(
@@ -290,4 +324,50 @@ export function buildHuntReport(hunt: Hunt): string {
     hunt.iocs.length ? hunt.iocs.map((i) => `${IOC_LABELS[i.type]}: ${i.value}`).join("\n") : "(none)",
   );
   return lines.join("\n");
+}
+
+/** One combined report of every hunt, newest-updated first. */
+export function buildAllHuntsReport(hunts: Hunt[]): string {
+  const sorted = [...hunts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const header = `=== ALL THREAT HUNTS (${sorted.length}) — exported ${new Date().toISOString()} ===\n`;
+  return header + sorted.map(buildHuntReport).join("\n\n" + "=".repeat(60) + "\n\n");
+}
+
+// -----------------------------------------------------------------------
+// Backup / restore (JSON export of everything, merge-on-import so a restore
+// never silently clobbers hunts created after the backup was taken)
+// -----------------------------------------------------------------------
+export interface HuntsBackup {
+  exportedAt: string;
+  hunts: Hunt[];
+  playbooks: Playbook[];
+}
+
+export function buildBackup(hunts: Hunt[], playbooks: Playbook[]): string {
+  const backup: HuntsBackup = { exportedAt: new Date().toISOString(), hunts, playbooks };
+  return JSON.stringify(backup, null, 2);
+}
+
+/** Parses and loosely validates a backup file's contents. Returns null if it doesn't look like one. */
+export function parseBackup(json: string): HuntsBackup | null {
+  try {
+    const data = JSON.parse(json);
+    if (!data || !Array.isArray(data.hunts) || !Array.isArray(data.playbooks)) return null;
+    return data as HuntsBackup;
+  } catch {
+    return null;
+  }
+}
+
+export interface MergeResult<T> {
+  merged: T[];
+  addedCount: number;
+  skippedCount: number;
+}
+
+/** Adds any imported record whose id isn't already present; never overwrites an existing one. */
+export function mergeById<T extends { id: string }>(existing: T[], imported: T[]): MergeResult<T> {
+  const existingIds = new Set(existing.map((r) => r.id));
+  const toAdd = imported.filter((r) => !existingIds.has(r.id));
+  return { merged: [...existing, ...toAdd], addedCount: toAdd.length, skippedCount: imported.length - toAdd.length };
 }

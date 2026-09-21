@@ -798,6 +798,9 @@ input.text-input {
   min-height: 0;
 }
 .hunts-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
   padding: 0 10px;
@@ -816,12 +819,27 @@ input.text-input {
 .hunts-tabs button:hover { color: var(--fg); }
 .hunts-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+.hunts-toolbar-actions { display: flex; gap: 6px; }
+.hunts-toolbar-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.hunts-toolbar-actions button:hover { color: var(--accent); border-color: var(--accent); }
+
 .hunts-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 
 .hunts-layout { display: flex; gap: 14px; height: 100%; align-items: flex-start; }
 .hunts-list-pane { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
 .hunts-list-toolbar { display: flex; gap: 6px; }
 .hunts-list-toolbar select { flex: 1; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.hunts-list-toolbar input.text-input { flex: 1; font-size: 12px; padding: 5px 7px; }
+.hunt-due-filter { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-muted); cursor: pointer; }
 .hunts-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
 
 .hunt-row {
@@ -851,6 +869,32 @@ input.text-input {
 .status-badge.status-open { background: rgba(11, 110, 203, 0.15); color: var(--accent); border: 1px solid var(--accent); }
 .status-badge.status-in_progress { background: rgba(245, 165, 36, 0.15); color: #f5a524; border: 1px solid #f5a524; }
 .status-badge.status-closed { background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid #22c55e; }
+
+.priority-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+.priority-badge.priority-high { color: #ff4d6d; }
+.priority-badge.priority-medium { color: var(--fg-muted); }
+.priority-badge.priority-low { color: var(--fg-muted); opacity: 0.7; }
+
+.due-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #f5a524;
+  background: rgba(245, 165, 36, 0.15);
+  border: 1px solid #f5a524;
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  margin-left: 6px;
+}
 
 .hunt-detail-pane {
   flex: 1;
@@ -928,6 +972,16 @@ input.text-input {
 .hunt-iocs-section { margin-top: 10px; }
 .hunt-actions { justify-content: space-between; }
 
+.recurring-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  margin-top: 6px;
+}
+.recurring-input { width: 64px !important; flex: none; text-align: center; }
+
 /* Coverage tab */
 .coverage-summary { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; margin-bottom: 6px; }
 .coverage-summary b { color: var(--accent); }
@@ -954,6 +1008,9 @@ input.text-input {
 .technique-cell:hover { border-color: var(--accent); color: var(--fg); }
 .technique-cell.technique-open { border-color: #f5a524; color: #f5a524; background: rgba(245, 165, 36, 0.1); }
 .technique-cell.technique-closed { border-color: #22c55e; color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+/* Closed coverage fades as it ages — a hunt from months ago isn't as current as one from yesterday. */
+.technique-cell.technique-closed.freshness-aging { opacity: 0.65; }
+.technique-cell.technique-closed.freshness-stale { opacity: 0.35; }
 
 /* Playbooks tab */
 .playbooks-toolbar { margin-bottom: 10px; }
