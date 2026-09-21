@@ -15,10 +15,12 @@ import {
 import {
   DEFAULT_SETTINGS,
   fillPlaceholders,
+  loadKqlSnippets,
   loadSession,
   loadSettings,
   loadSnippets,
   loadTemplates,
+  saveKqlSnippets,
   saveSession,
   saveSettings,
   saveSnippets,
@@ -33,6 +35,7 @@ import { initPhase3, type Phase3Hooks } from "./ui/phase3";
 let settings: Settings = loadSettings();
 let templates = loadTemplates();
 let snippets = loadSnippets();
+let kqlSnippets = loadKqlSnippets();
 let lastIocMatches: IocMatch[] = [];
 let phase3Hooks: Phase3Hooks;
 
@@ -86,6 +89,10 @@ app.innerHTML = `
     <div class="toolbar-center">
       <button id="btn-defang" class="center-action center-action-solid" title="Ctrl+D">🛡 Defang</button>
       <button id="btn-refang" class="center-action center-action-outline" title="Ctrl+R">♻ Refang</button>
+      <div class="menu kql-menu" id="kql-menu">
+        <button class="menu-trigger center-action center-action-outline" title="Saved KQL snippets">📊 KQL ▾</button>
+        <div class="menu-list" id="kql-menu-list"></div>
+      </div>
     </div>
 
     <div class="toolbar-right">
@@ -108,6 +115,7 @@ app.innerHTML = `
         </div>
       </div>
 
+      <button id="btn-toggle-sidebar" title="Show/Hide IOC pane"></button>
       <button id="btn-theme"></button>
       <button id="btn-settings" title="Settings">⚙</button>
     </div>
@@ -116,7 +124,7 @@ app.innerHTML = `
   <div class="tw-panel hidden" id="tw-panel"></div>
   <div class="main">
     <div class="editor-container" id="editor"></div>
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar">
       <div class="sidebar-tabs">
         <button data-panel="iocs" class="active">IOCs</button>
         <button data-panel="templates">Templates</button>
@@ -135,7 +143,10 @@ app.innerHTML = `
       <span id="status-right"></span>
     </span>
   </div>
-  <button id="btn-safe-copy" class="fab" title="Blocks copy on cross-client contamination">🔒 Safe Copy</button>
+  <div class="fab-group">
+    <button id="btn-clear-note" class="fab-circle" title="Clear the current note">✕</button>
+    <button id="btn-safe-copy" class="fab" title="Blocks copy on cross-client contamination">🔒 Safe Copy</button>
+  </div>
   <button id="btn-help" class="fab fab-help" title="Help / quick reference">?</button>
   <input type="file" id="file-input" accept=".txt,.log,.md,.csv,.json" style="display:none" />
 `;
@@ -461,6 +472,100 @@ function flashStatus(msg: string) {
 }
 
 // ---------------------------------------------------------------------------
+// KQL snippets: saved-query dropdown (copies to clipboard) + Manage KQL modal
+// ---------------------------------------------------------------------------
+function renderKqlMenu() {
+  const list = document.querySelector<HTMLDivElement>("#kql-menu-list")!;
+  const names = Object.keys(kqlSnippets).sort();
+  list.innerHTML =
+    (names.length > 0
+      ? names.map((n) => `<button class="kql-item" data-name="${escapeHtml(n)}">${escapeHtml(n)}</button>`).join("")
+      : `<div class="kql-empty">No saved KQL yet</div>`) +
+    `<div class="menu-divider"></div><button id="btn-manage-kql">Manage KQL…</button>`;
+
+  list.querySelectorAll<HTMLButtonElement>(".kql-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const name = btn.dataset.name!;
+      navigator.clipboard.writeText(kqlSnippets[name] ?? "");
+      flashStatus(`Copied KQL: ${name}`);
+      closeAllMenus();
+    });
+  });
+  document.querySelector("#btn-manage-kql")!.addEventListener("click", () => {
+    closeAllMenus();
+    openKqlManager();
+  });
+}
+renderKqlMenu();
+
+function openKqlManager() {
+  const names = Object.keys(kqlSnippets).sort();
+  openModal(
+    "Manage KQL",
+    `
+    <div style="display:flex;gap:10px;">
+      <div style="width:160px;">
+        <select id="km-list" size="8" style="width:100%;">
+          ${names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")}
+        </select>
+        <button id="km-add" style="width:100%;margin-top:6px;">+ Add</button>
+        <button id="km-delete" style="width:100%;margin-top:4px;">Delete</button>
+      </div>
+      <div style="flex:1;">
+        <label style="display:block;font-size:12px;margin-bottom:2px;">KQL query</label>
+        <textarea class="snippet-editor" id="km-text" style="min-height:220px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="primary" id="km-save">Save</button>
+      <button id="km-close">Close</button>
+    </div>
+  `,
+    { wide: true },
+  );
+
+  const listEl = document.querySelector<HTMLSelectElement>("#km-list")!;
+  const textEl = document.querySelector<HTMLTextAreaElement>("#km-text")!;
+
+  function loadIntoForm(name: string) {
+    textEl.value = kqlSnippets[name] ?? "";
+  }
+  if (names.length > 0) {
+    listEl.selectedIndex = 0;
+    loadIntoForm(names[0]);
+  }
+  listEl.addEventListener("change", () => loadIntoForm(listEl.value));
+
+  document.querySelector("#km-add")!.addEventListener("click", () => {
+    const name = prompt("Snippet name:");
+    if (!name || !name.trim()) return;
+    if (kqlSnippets[name]) return alert("A KQL snippet with that name already exists.");
+    kqlSnippets[name] = "";
+    saveKqlSnippets(kqlSnippets);
+    renderKqlMenu();
+    openKqlManager();
+  });
+  document.querySelector("#km-delete")!.addEventListener("click", () => {
+    const name = listEl.value;
+    if (!name) return;
+    if (!confirm(`Delete KQL snippet "${name}"? This cannot be undone.`)) return;
+    delete kqlSnippets[name];
+    saveKqlSnippets(kqlSnippets);
+    renderKqlMenu();
+    openKqlManager();
+  });
+  document.querySelector("#km-save")!.addEventListener("click", () => {
+    const name = listEl.value;
+    if (!name) return alert("Select or add a snippet first.");
+    kqlSnippets[name] = textEl.value;
+    saveKqlSnippets(kqlSnippets);
+    renderKqlMenu();
+    flashStatus(`Saved KQL snippet: ${name}`);
+  });
+  document.querySelector("#km-close")!.addEventListener("click", closeModal);
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar: IOCs / Templates / Snippets
 // ---------------------------------------------------------------------------
 const sidebarTabButtons = document.querySelectorAll<HTMLButtonElement>(".sidebar-tabs button");
@@ -596,6 +701,30 @@ function updateThemeButton() {
 }
 updateThemeButton();
 
+const sidebarEl = document.querySelector<HTMLDivElement>("#sidebar")!;
+const sidebarToggleBtn = document.querySelector<HTMLButtonElement>("#btn-toggle-sidebar")!;
+function updateSidebarToggleButton() {
+  sidebarToggleBtn.textContent = settings.sidebarHidden ? "🗂 Show Pane" : "🗂 Hide Pane";
+}
+function applySidebarVisibility() {
+  sidebarEl.classList.toggle("hidden", settings.sidebarHidden);
+  updateSidebarToggleButton();
+}
+applySidebarVisibility();
+sidebarToggleBtn.addEventListener("click", () => {
+  settings = { ...settings, sidebarHidden: !settings.sidebarHidden };
+  saveSettings(settings);
+  applySidebarVisibility();
+  flashStatus(settings.sidebarHidden ? "IOC pane hidden" : "IOC pane shown");
+});
+
+document.querySelector("#btn-clear-note")!.addEventListener("click", () => {
+  if (!tabs.getContent().trim()) return flashStatus("Nothing to clear");
+  if (!confirm("Clear the current note? This cannot be undone.")) return;
+  tabs.setContent("");
+  flashStatus("Note cleared");
+});
+
 function applySettings() {
   document.documentElement.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
   tabs.applySettings(settings);
@@ -672,13 +801,23 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
       <h4>Center stage</h4>
       <ul>
         <li><b>Defang / Refang</b> — safely neutralize or restore IOCs (<code>hxxp[://]</code>, <code>[.]</code>, <code>[@]</code>, <code>[:]</code>)</li>
+        <li><b>📊 KQL</b> — pick a saved KQL query to copy to your clipboard (paste it into your log
+        platform yourself — nothing is ever run or sent from here); manage your saved queries via
+        "Manage KQL…" at the bottom of the dropdown</li>
       </ul>
 
       <h4>Floating buttons</h4>
       <ul>
         <li><b>🔒 Safe Copy</b> (bottom-right) — blocks the clipboard copy if the active tab contains
         another client's identifiers, and warns before copying undefanged live IOCs</li>
+        <li><b>✕</b> (next to Safe Copy) — clears the active note (asks to confirm)</li>
         <li><b>?</b> (bottom-left) — this panel</li>
+      </ul>
+
+      <h4>IOC pane</h4>
+      <ul>
+        <li>Use <b>🗂 Hide Pane / Show Pane</b> in the toolbar to collapse or restore the sidebar
+        (IOCs / Templates / Snippets)</li>
       </ul>
 
       <h4>Keyboard shortcuts</h4>

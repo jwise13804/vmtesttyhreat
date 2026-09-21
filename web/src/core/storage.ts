@@ -21,6 +21,7 @@ export interface Settings {
   fontSize: number;
   iocHighlighting: boolean;
   trainingWheelsEnabled: boolean;
+  sidebarHidden: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 13,
   iocHighlighting: true,
   trainingWheelsEnabled: false,
+  sidebarHidden: false,
 };
 
 export interface Mileage {
@@ -79,6 +81,7 @@ const KEYS = {
   settings: "threatpad:settings",
   templates: "threatpad:templates",
   snippets: "threatpad:snippets",
+  kqlSnippets: "threatpad:kqlSnippets",
   clients: "threatpad:clients",
   activeClient: "threatpad:activeClient",
   mileage: "threatpad:mileage",
@@ -143,6 +146,17 @@ export function loadSnippets(): Record<string, string> {
   }
 }
 export const saveSnippets = (snippets: Record<string, string>) => write(KEYS.snippets, snippets);
+
+export function loadKqlSnippets(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(KEYS.kqlSnippets);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+export const saveKqlSnippets = (kqlSnippets: Record<string, string>) =>
+  write(KEYS.kqlSnippets, kqlSnippets);
 
 export function loadClients(): ClientMap {
   try {

@@ -205,6 +205,21 @@ html, body {
 }
 .center-action-outline:hover { background: var(--accent); color: var(--accent-fg); box-shadow: 0 0 18px var(--glow); }
 
+/* KQL dropdown — trigger keeps the same center-action look; menu-list keeps standard dropdown behavior */
+#kql-menu .menu-list { min-width: 220px; max-height: 320px; overflow-y: auto; }
+.kql-item { text-align: left; }
+.kql-empty {
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+#btn-manage-kql { color: var(--accent); font-weight: 600; }
+
 /* Tab bar */
 .tab-bar {
   display: flex;
@@ -325,6 +340,7 @@ html, body {
   display: none;
 }
 .sidebar-panel.active { display: block; }
+.sidebar.hidden { display: none; }
 
 .ioc-group { margin-bottom: 12px; }
 .ioc-group h4 {
@@ -383,12 +399,18 @@ html, body {
   display: inline-block;
 }
 
-/* Safe Copy — floating action button, bottom-right of the viewport */
-.fab {
+/* Safe Copy + Clear — floating action buttons, bottom-right of the viewport */
+.fab-group {
   position: fixed;
   right: 22px;
   bottom: 44px;
   z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fab {
+  position: static;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -412,7 +434,33 @@ html, body {
 }
 .fab:active { transform: translateY(0); }
 
+.fab-circle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--accent);
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 12px var(--glow);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.fab-circle:hover {
+  color: white;
+  background: var(--danger);
+  border-color: var(--danger);
+  transform: translateY(-2px);
+}
+.fab-circle:active { transform: translateY(0); }
+
 .fab-help {
+  position: fixed;
   left: 22px;
   right: auto;
   bottom: 44px;
