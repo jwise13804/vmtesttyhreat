@@ -7,6 +7,8 @@ import {
   hasLiveIocs,
   scanForContamination,
 } from "../core/clients";
+import { computeHuntStats, loadHunts } from "../core/hunts";
+import { MITRE_TECHNIQUES } from "../core/mitre";
 import { TrainingWheelsPanel } from "./trainingWheels";
 import {
   defaultMileage,
@@ -385,6 +387,13 @@ export function initPhase3(ctx: Phase3Context): Phase3Hooks {
     const minutes = Math.floor((ageMs % 3_600_000) / 60_000);
     const ageStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
     const patterns = analyseMistakePatterns();
+    const huntStats = computeHuntStats(loadHunts(), MITRE_TECHNIQUES.length);
+    const avgCloseStr =
+      huntStats.avgTimeToCloseHours === null
+        ? "—"
+        : huntStats.avgTimeToCloseHours < 1
+          ? `${Math.round(huntStats.avgTimeToCloseHours * 60)}m`
+          : `${huntStats.avgTimeToCloseHours.toFixed(1)}h`;
 
     openModal(
       "📊 Session Mileage",
@@ -398,6 +407,13 @@ export function initPhase3(ctx: Phase3Context): Phase3Hooks {
         <div><span>Near-misses logged</span><b>${mileage.nearMisses}</b></div>
         <div><span>Breakglass events</span><b>${mileage.breakglassEvents}</b></div>
         <div><span>Actions logged</span><b>${getActionLog().length}</b></div>
+      </div>
+      <h4 style="margin:12px 0 4px;">🎯 Hunt Tracker</h4>
+      <div class="mileage-grid">
+        <div><span>Hunts total</span><b>${huntStats.total}</b></div>
+        <div><span>Open / In Progress / Closed</span><b>${huntStats.open} / ${huntStats.inProgress} / ${huntStats.closed}</b></div>
+        <div><span>MITRE techniques covered</span><b>${huntStats.techniquesCovered} / ${huntStats.techniquesTotal}</b></div>
+        <div><span>Avg time to close</span><b>${avgCloseStr}</b></div>
       </div>
       <h4 style="margin:12px 0 4px;">Mistake Memory</h4>
       ${

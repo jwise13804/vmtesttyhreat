@@ -28,6 +28,7 @@ import {
   type Settings,
 } from "./core/storage";
 import { initPhase3, type Phase3Hooks } from "./ui/phase3";
+import { initHuntsView } from "./ui/hunts";
 
 // ---------------------------------------------------------------------------
 // State
@@ -49,6 +50,7 @@ app.innerHTML = `
   <div class="toolbar">
     <div class="toolbar-left">
       <span class="app-title">ThreatPad</span>
+      <button id="btn-view-hunts" class="view-toggle-btn">🎯 Hunts</button>
 
       <div class="menu">
         <button class="menu-trigger">File ▾</button>
@@ -122,7 +124,7 @@ app.innerHTML = `
   </div>
   <div class="tab-bar" id="tab-bar"></div>
   <div class="tw-panel hidden" id="tw-panel"></div>
-  <div class="main">
+  <div class="main" id="main-view">
     <div class="editor-container" id="editor"></div>
     <div class="sidebar" id="sidebar">
       <div class="sidebar-tabs">
@@ -135,6 +137,7 @@ app.innerHTML = `
       <div class="sidebar-panel" id="panel-snippets"></div>
     </div>
   </div>
+  <div class="hunts-view hidden" id="hunts-view"></div>
   <div class="status-bar">
     <span id="status-left">Ready</span>
     <span class="status-right-group">
@@ -725,6 +728,39 @@ document.querySelector("#btn-clear-note")!.addEventListener("click", () => {
   flashStatus("Note cleared");
 });
 
+// ---------------------------------------------------------------------------
+// Hunts view: full-screen threat-hunt tracker (toggle away from the editor)
+// ---------------------------------------------------------------------------
+const mainViewEl = document.querySelector<HTMLDivElement>("#main-view")!;
+const huntsViewEl = document.querySelector<HTMLDivElement>("#hunts-view")!;
+const viewToggleBtn = document.querySelector<HTMLButtonElement>("#btn-view-hunts")!;
+let currentView: "editor" | "hunts" = "editor";
+
+function updateViewToggleButton() {
+  viewToggleBtn.textContent = currentView === "editor" ? "🎯 Hunts" : "📝 Editor";
+}
+function showEditorView() {
+  currentView = "editor";
+  mainViewEl.classList.remove("hidden");
+  tabBar.classList.remove("hidden");
+  huntsViewEl.classList.add("hidden");
+  updateViewToggleButton();
+}
+function showHuntsView() {
+  currentView = "hunts";
+  mainViewEl.classList.add("hidden");
+  tabBar.classList.add("hidden");
+  huntsViewEl.classList.remove("hidden");
+  updateViewToggleButton();
+}
+viewToggleBtn.addEventListener("click", () => (currentView === "editor" ? showHuntsView() : showEditorView()));
+updateViewToggleButton();
+
+initHuntsView(huntsViewEl, {
+  flashStatus,
+  getKqlSnippets: () => kqlSnippets,
+});
+
 function applySettings() {
   document.documentElement.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
   tabs.applySettings(settings);
@@ -787,6 +823,14 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
       <p>A CyberChef-style SOC notes app. Everything runs in your browser and is
       saved to this device's local storage only — no accounts, no backend, no
       network calls, nothing leaves your machine.</p>
+
+      <h4>Threat Hunting</h4>
+      <ul>
+        <li><b>🎯 Hunts</b> (top-left) — switch to the full hunt tracker: log hunts with a
+        hypothesis, MITRE ATT&amp;CK tags, data sources, queries, and findings; a
+        <b>Coverage</b> view showing which techniques you've actually hunted; and a
+        <b>Playbooks</b> library of reusable hunt starting points</li>
+      </ul>
 
       <h4>Menus</h4>
       <ul>
