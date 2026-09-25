@@ -848,15 +848,21 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
 
       <h4>Threat Hunting</h4>
       <ul>
-        <li><b>🎯 Hunts</b> (top-left) — switch to the full hunt tracker: log hunts with a
-        hypothesis, MITRE ATT&amp;CK tags (including a curated set of sub-techniques), data
-        sources, queries, findings, a <b>priority</b>, and an optional <b>recurring</b> revisit
-        interval (a "⏰ Due" badge appears once it elapses); search and filter the list by
-        status, priority, or due-only</li>
-        <li><b>🗺 Coverage</b> — a technique heatmap by tactic; closed coverage fades as it ages
-        (30/90 days) so a hunt from months ago doesn't look as current as one from yesterday</li>
+        <li><b>🎯 Hunts</b> (top-left) — switch to the hunt tracker</li>
+        <li><b>🗂 Board</b> — a kanban pipeline: Ideas → Hypothesis → Research → Hunting →
+        Results → Disclosure → Recurring → Closed. Drag a card to a new column, or use its
+        ◀ / ▶ buttons; "+ New" on any column starts a hunt right there</li>
+        <li><b>📋 List</b> — the same hunts as a searchable, filterable queue table (stage,
+        priority, due-only) when you want to scan or find one fast</li>
+        <li>Clicking any card or row opens its <b>ticket page</b> — hypothesis, MITRE ATT&amp;CK
+        tags (including a curated set of sub-techniques), data sources, queries, findings, a
+        priority, an optional recurring revisit interval, and a running <b>Activity Log</b> for
+        timestamped notes (posts immediately, like a ticket comment). Click any stage pill at the
+        top to move it, same as dragging on the board</li>
+        <li><b>🗺 Coverage</b> — a technique heatmap by tactic; a technique counts as covered once
+        a hunt reaches Results or later, and fades as that coverage ages (30/90 days)</li>
         <li><b>📖 Playbooks</b> — a library of reusable hunt starting points, one click to spin
-        up a pre-filled hunt</li>
+        up a pre-filled hunt in the Hypothesis column</li>
         <li><b>⬇ Backup / ⬆ Restore / 📄 All Hunts Report</b> (top-right of the Hunts view) —
         export everything as a JSON backup, restore from one (merges by id, never overwrites),
         or download every hunt as one combined text report</li>

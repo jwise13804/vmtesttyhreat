@@ -7,7 +7,7 @@ import {
   hasLiveIocs,
   scanForContamination,
 } from "../core/clients";
-import { computeHuntStats, loadHunts } from "../core/hunts";
+import { computeHuntStats, HUNT_STAGES, loadHunts } from "../core/hunts";
 import { MITRE_TECHNIQUES } from "../core/mitre";
 import { TrainingWheelsPanel } from "./trainingWheels";
 import {
@@ -411,9 +411,12 @@ export function initPhase3(ctx: Phase3Context): Phase3Hooks {
       <h4 style="margin:12px 0 4px;">🎯 Hunt Tracker</h4>
       <div class="mileage-grid">
         <div><span>Hunts total</span><b>${huntStats.total}</b></div>
-        <div><span>Open / In Progress / Closed</span><b>${huntStats.open} / ${huntStats.inProgress} / ${huntStats.closed}</b></div>
+        <div><span>Due for review</span><b>${huntStats.dueForReview}</b></div>
         <div><span>MITRE techniques covered</span><b>${huntStats.techniquesCovered} / ${huntStats.techniquesTotal}</b></div>
         <div><span>Avg time to close</span><b>${avgCloseStr}</b></div>
+      </div>
+      <div class="mileage-stage-breakdown">
+        ${HUNT_STAGES.map((s) => `<span class="mileage-stage-chip" style="color:${s.color};border-color:${s.color}">${s.icon} ${s.label} ${huntStats.byStage[s.id]}</span>`).join("")}
       </div>
       <h4 style="margin:12px 0 4px;">Mistake Memory</h4>
       ${

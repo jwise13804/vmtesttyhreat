@@ -1,18 +1,66 @@
 // Threat hunt tracking — local-only (localStorage), same pattern as the rest
 // of ThreatPad's storage layer. A "hunt" is a structured record of one
-// hypothesis-driven investigation: what you're looking for, where you looked,
-// what you ran, what you found, and how it maps to MITRE ATT&CK.
+// hypothesis-driven investigation, tracked through a pipeline (kanban-style)
+// from first idea to closed, with a service-ticket-style activity log for
+// running notes.
 
 import { extractIocs, IOC_LABELS, type IocMatch } from "./iocPatterns";
 import { mitreEntryById, tagCoversTechnique } from "./mitre";
 
-export type HuntStatus = "open" | "in_progress" | "closed";
+export type HuntStage =
+  | "ideas"
+  | "hypothesis"
+  | "research"
+  | "hunting"
+  | "results"
+  | "disclosure"
+  | "recurring"
+  | "closed";
 
-export const HUNT_STATUS_LABELS: Record<HuntStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  closed: "Closed",
-};
+export interface HuntStageDef {
+  id: HuntStage;
+  label: string;
+  icon: string;
+  color: string;
+}
+
+// Order here is the pipeline order — drives the kanban board's column order
+// and the ticket page's stage-pill stepper.
+export const HUNT_STAGES: HuntStageDef[] = [
+  { id: "ideas", label: "Ideas", icon: "💡", color: "#8a97ad" },
+  { id: "hypothesis", label: "Hypothesis", icon: "🧭", color: "#0b6ecb" },
+  { id: "research", label: "Research", icon: "🔎", color: "#7c3aed" },
+  { id: "hunting", label: "Hunting", icon: "🎯", color: "#f5a524" },
+  { id: "results", label: "Results", icon: "📊", color: "#14b8a6" },
+  { id: "disclosure", label: "Disclosure", icon: "📣", color: "#ec4899" },
+  { id: "recurring", label: "Recurring", icon: "🔁", color: "#06b6d4" },
+  { id: "closed", label: "Closed", icon: "✅", color: "#22c55e" },
+];
+
+export const HUNT_STAGE_LABELS: Record<HuntStage, string> = Object.fromEntries(
+  HUNT_STAGES.map((s) => [s.id, s.label]),
+) as Record<HuntStage, string>;
+
+export const HUNT_STAGE_COLORS: Record<HuntStage, string> = Object.fromEntries(
+  HUNT_STAGES.map((s) => [s.id, s.color]),
+) as Record<HuntStage, string>;
+
+const STAGE_ORDER: HuntStage[] = HUNT_STAGES.map((s) => s.id);
+export function stageIndex(stage: HuntStage): number {
+  return STAGE_ORDER.indexOf(stage);
+}
+export function stageAtOffset(stage: HuntStage, offset: number): HuntStage | null {
+  const next = stageIndex(stage) + offset;
+  return next >= 0 && next < STAGE_ORDER.length ? STAGE_ORDER[next] : null;
+}
+
+// A technique only counts as "covered" on the Coverage grid once a hunt
+// about it has produced something — earlier pipeline stages are still
+// in-progress (amber), not done.
+const COVERING_STAGES: HuntStage[] = ["results", "disclosure", "recurring", "closed"];
+export function stageCoverageStatus(stage: HuntStage): "open" | "closed" {
+  return COVERING_STAGES.includes(stage) ? "closed" : "open";
+}
 
 export type HuntPriority = "low" | "medium" | "high";
 
@@ -22,8 +70,14 @@ export const HUNT_PRIORITY_LABELS: Record<HuntPriority, string> = {
   high: "High",
 };
 
+export interface ActivityEntry {
+  timestamp: string;
+  text: string;
+}
+
 export interface Hunt {
   id: string;
+  ticketNo: number; // stable display number, e.g. "#HT-007"
   title: string;
   hypothesis: string;
   techniques: string[]; // MITRE technique or sub-technique IDs, e.g. "T1059" or "T1059.001"
@@ -31,12 +85,17 @@ export interface Hunt {
   queries: string; // freeform KQL/query text, one or more queries
   findings: string;
   iocs: IocMatch[]; // snapshot captured from findings via "Extract IOCs"
-  status: HuntStatus;
+  activityLog: ActivityEntry[]; // running, append-only notes/updates — like ticket comments
+  stage: HuntStage;
   priority: HuntPriority;
   recurringDays?: number; // if set, this hunt is due again `recurringDays` after updatedAt
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+}
+
+export function ticketLabel(hunt: Hunt): string {
+  return `#HT-${String(hunt.ticketNo).padStart(3, "0")}`;
 }
 
 export interface Playbook {
@@ -50,6 +109,7 @@ export interface Playbook {
 const KEYS = {
   hunts: "threatpad:hunts",
   playbooks: "threatpad:playbooks",
+  huntSeq: "threatpad:huntSeq",
 } as const;
 
 function read<T>(key: string, fallback: T): T {
@@ -68,8 +128,58 @@ function write(key: string, value: unknown): void {
   }
 }
 
+function nextTicketNo(): number {
+  const n = read<number>(KEYS.huntSeq, 0) + 1;
+  write(KEYS.huntSeq, n);
+  return n;
+}
+
+// Pre-pipeline hunts only had a 3-value status; map it onto the new 8-stage
+// pipeline so hunts created before this feature don't just vanish.
+function migrateLegacyStage(legacyStatus: unknown): HuntStage {
+  switch (legacyStatus) {
+    case "closed":
+      return "closed";
+    case "in_progress":
+      return "hunting";
+    default:
+      return "hypothesis";
+  }
+}
+
+/** Backfills any fields a hunt from an older version of the app is missing. */
+function normalizeHunt(raw: Record<string, unknown>): Hunt {
+  const stage = typeof raw.stage === "string" ? (raw.stage as HuntStage) : migrateLegacyStage(raw.status);
+  const ticketNo = typeof raw.ticketNo === "number" ? raw.ticketNo : nextTicketNo();
+  return {
+    id: raw.id as string,
+    ticketNo,
+    title: (raw.title as string) ?? "Untitled Hunt",
+    hypothesis: (raw.hypothesis as string) ?? "",
+    techniques: Array.isArray(raw.techniques) ? (raw.techniques as string[]) : [],
+    dataSources: Array.isArray(raw.dataSources) ? (raw.dataSources as string[]) : [],
+    queries: (raw.queries as string) ?? "",
+    findings: (raw.findings as string) ?? "",
+    iocs: Array.isArray(raw.iocs) ? (raw.iocs as IocMatch[]) : [],
+    activityLog: Array.isArray(raw.activityLog) ? (raw.activityLog as ActivityEntry[]) : [],
+    stage,
+    priority: (raw.priority as HuntPriority) ?? "medium",
+    recurringDays: typeof raw.recurringDays === "number" ? raw.recurringDays : undefined,
+    createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
+    updatedAt: (raw.updatedAt as string) ?? new Date().toISOString(),
+    closedAt: raw.closedAt as string | undefined,
+  };
+}
+
 export function loadHunts(): Hunt[] {
-  return read<Hunt[]>(KEYS.hunts, []);
+  const raw = read<Record<string, unknown>[]>(KEYS.hunts, []);
+  let touched = false;
+  const hunts = raw.map((h) => {
+    if (typeof h.stage !== "string" || typeof h.ticketNo !== "number") touched = true;
+    return normalizeHunt(h);
+  });
+  if (touched) saveHunts(hunts); // persist backfilled ticketNo/stage so they stay stable
+  return hunts;
 }
 export const saveHunts = (hunts: Hunt[]) => write(KEYS.hunts, hunts);
 
@@ -172,6 +282,7 @@ export function emptyHunt(): Hunt {
   const now = new Date().toISOString();
   return {
     id: newHuntId(),
+    ticketNo: nextTicketNo(),
     title: "Untitled Hunt",
     hypothesis: "",
     techniques: [],
@@ -179,7 +290,8 @@ export function emptyHunt(): Hunt {
     queries: "",
     findings: "",
     iocs: [],
-    status: "open",
+    activityLog: [],
+    stage: "ideas",
     priority: "medium",
     createdAt: now,
     updatedAt: now,
@@ -192,12 +304,23 @@ export function isDueForReview(hunt: Hunt): boolean {
   return daysSince(hunt.updatedAt) >= hunt.recurringDays;
 }
 
+/** Moves a hunt to `stage`, keeping closedAt in sync (set on entering "closed", cleared on leaving it). */
+export function setHuntStage(hunt: Hunt, stage: HuntStage): void {
+  if (hunt.stage === stage) return;
+  const wasClosed = hunt.stage === "closed";
+  hunt.stage = stage;
+  if (stage === "closed" && !wasClosed) hunt.closedAt = new Date().toISOString();
+  if (stage !== "closed") hunt.closedAt = undefined;
+  hunt.updatedAt = new Date().toISOString();
+}
+
 export function huntFromPlaybook(pb: Playbook): Hunt {
   const hunt = emptyHunt();
   hunt.title = pb.title;
   hunt.hypothesis = pb.description;
   hunt.techniques = [...pb.techniques];
   hunt.queries = pb.suggestedQuery;
+  hunt.stage = "hypothesis"; // a playbook already supplies the hypothesis + a starting query
   return hunt;
 }
 
@@ -219,7 +342,7 @@ export function computeCoverage(hunts: Hunt[], techniqueIds: string[]): Techniqu
     // toward its parent's coverage (e.g. "T1059").
     const related = hunts.filter((h) => h.techniques.some((t) => tagCoversTechnique(t, id)));
     let status: CoverageStatus = "never";
-    if (related.some((h) => h.status === "closed")) status = "closed";
+    if (related.some((h) => stageCoverageStatus(h.stage) === "closed")) status = "closed";
     else if (related.length > 0) status = "open";
     const lastHuntedAt =
       related.length > 0 ? related.map((h) => h.updatedAt).sort().slice(-1)[0] : null;
@@ -249,9 +372,7 @@ export function coverageFreshness(lastHuntedAt: string | null): CoverageFreshnes
 // -----------------------------------------------------------------------
 export interface HuntStats {
   total: number;
-  open: number;
-  inProgress: number;
-  closed: number;
+  byStage: Record<HuntStage, number>;
   techniquesCovered: number;
   techniquesTotal: number;
   avgTimeToCloseHours: number | null;
@@ -259,11 +380,10 @@ export interface HuntStats {
 }
 
 export function computeHuntStats(hunts: Hunt[], totalTechniques: number): HuntStats {
-  const open = hunts.filter((h) => h.status === "open").length;
-  const inProgress = hunts.filter((h) => h.status === "in_progress").length;
-  const closed = hunts.filter((h) => h.status === "closed").length;
+  const byStage = Object.fromEntries(HUNT_STAGES.map((s) => [s.id, 0])) as Record<HuntStage, number>;
+  for (const h of hunts) byStage[h.stage] = (byStage[h.stage] ?? 0) + 1;
   const techniquesCovered = new Set(hunts.flatMap((h) => h.techniques)).size;
-  const closedWithTimes = hunts.filter((h) => h.status === "closed" && h.closedAt);
+  const closedWithTimes = hunts.filter((h) => h.stage === "closed" && h.closedAt);
   const avgTimeToCloseHours =
     closedWithTimes.length > 0
       ? closedWithTimes.reduce(
@@ -275,9 +395,7 @@ export function computeHuntStats(hunts: Hunt[], totalTechniques: number): HuntSt
       : null;
   return {
     total: hunts.length,
-    open,
-    inProgress,
-    closed,
+    byStage,
     techniquesCovered,
     techniquesTotal: totalTechniques,
     avgTimeToCloseHours,
@@ -299,11 +417,12 @@ function techniqueLabel(id: string): string {
 
 export function buildHuntReport(hunt: Hunt): string {
   const techniqueLines = hunt.techniques.length ? hunt.techniques.map(techniqueLabel).join(", ") : "(none tagged)";
+  const stageDef = HUNT_STAGES.find((s) => s.id === hunt.stage);
 
   const lines: string[] = [
-    "=== THREAT HUNT REPORT ===",
+    `=== THREAT HUNT REPORT ${ticketLabel(hunt)} ===`,
     `Title: ${hunt.title}`,
-    `Status: ${HUNT_STATUS_LABELS[hunt.status]}`,
+    `Stage: ${stageDef ? `${stageDef.icon} ${stageDef.label}` : hunt.stage}`,
     `Priority: ${HUNT_PRIORITY_LABELS[hunt.priority]}`,
     `Created: ${hunt.createdAt}`,
     `Updated: ${hunt.updatedAt}`,
@@ -322,6 +441,13 @@ export function buildHuntReport(hunt: Hunt): string {
   lines.push(
     "--- IOCs ---",
     hunt.iocs.length ? hunt.iocs.map((i) => `${IOC_LABELS[i.type]}: ${i.value}`).join("\n") : "(none)",
+    "",
+  );
+  lines.push(
+    "--- ACTIVITY LOG ---",
+    hunt.activityLog.length
+      ? [...hunt.activityLog].reverse().map((e) => `[${e.timestamp}] ${e.text}`).join("\n")
+      : "(no notes yet)",
   );
   return lines.join("\n");
 }
@@ -353,7 +479,7 @@ export function parseBackup(json: string): HuntsBackup | null {
   try {
     const data = JSON.parse(json);
     if (!data || !Array.isArray(data.hunts) || !Array.isArray(data.playbooks)) return null;
-    return data as HuntsBackup;
+    return { exportedAt: data.exportedAt, hunts: data.hunts.map(normalizeHunt), playbooks: data.playbooks };
   } catch {
     return null;
   }
