@@ -92,6 +92,7 @@ export interface Hunt {
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+  intelId?: string; // set when this hunt was created from an imported threat-intel feed item, for dedup
 }
 
 export function ticketLabel(hunt: Hunt): string {
@@ -168,6 +169,7 @@ function normalizeHunt(raw: Record<string, unknown>): Hunt {
     createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
     updatedAt: (raw.updatedAt as string) ?? new Date().toISOString(),
     closedAt: raw.closedAt as string | undefined,
+    intelId: raw.intelId as string | undefined,
   };
 }
 
@@ -325,6 +327,52 @@ export function huntFromPlaybook(pb: Playbook): Hunt {
 }
 
 // -----------------------------------------------------------------------
+// Threat-intel feed import — a static JSON file (published alongside
+// ThreatPad, not part of its own build output) that an external process,
+// e.g. a scheduled daily CTI task, can drop new Ideas-stage hunts into.
+// ThreatPad only ever reads this on an explicit user click — never
+// automatically or in the background.
+// -----------------------------------------------------------------------
+export interface IntelFeedItem {
+  id: string; // stable, unique — reused across days to avoid re-importing the same item
+  title: string;
+  summary?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  date?: string;
+  techniques?: string[];
+  suggestedQuery?: string;
+}
+
+export interface IntelFeed {
+  generatedAt?: string;
+  items: IntelFeedItem[];
+}
+
+/** Parses and loosely validates a fetched feed. Returns null if it doesn't look like one. */
+export function parseIntelFeed(json: string): IntelFeed | null {
+  try {
+    const data = JSON.parse(json);
+    if (!data || !Array.isArray(data.items)) return null;
+    return data as IntelFeed;
+  } catch {
+    return null;
+  }
+}
+
+export function huntFromIntelItem(item: IntelFeedItem): Hunt {
+  const hunt = emptyHunt();
+  hunt.title = item.title;
+  const sourceLine = item.sourceUrl ? `\n\nSource: ${item.sourceName ?? "link"} — ${item.sourceUrl}` : "";
+  hunt.hypothesis = `${item.summary ?? ""}${sourceLine}`.trim();
+  hunt.techniques = (item.techniques ?? []).filter((id) => mitreEntryById(id));
+  hunt.queries = item.suggestedQuery ?? "";
+  hunt.stage = "ideas";
+  hunt.intelId = item.id;
+  return hunt;
+}
+
+// -----------------------------------------------------------------------
 // Coverage (MITRE ATT&CK) + staleness
 // -----------------------------------------------------------------------
 export type CoverageStatus = "never" | "open" | "closed";
@@ -429,6 +477,7 @@ export function buildHuntReport(hunt: Hunt): string {
   ];
   if (hunt.closedAt) lines.push(`Closed: ${hunt.closedAt}`);
   if (hunt.recurringDays) lines.push(`Recurring: every ${hunt.recurringDays} day(s)`);
+  if (hunt.intelId) lines.push(`Origin: imported from daily threat-intel feed (${hunt.intelId})`);
   lines.push(`MITRE ATT&CK Techniques: ${techniqueLines}`, "");
   lines.push("--- HYPOTHESIS ---", hunt.hypothesis || "(none)", "");
   lines.push(

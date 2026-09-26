@@ -12,6 +12,7 @@ import {
   HUNT_PRIORITY_LABELS,
   HUNT_STAGE_LABELS,
   HUNT_STAGES,
+  huntFromIntelItem,
   huntFromPlaybook,
   isDueForReview,
   loadHunts,
@@ -19,6 +20,7 @@ import {
   mergeById,
   newPlaybookId,
   parseBackup,
+  parseIntelFeed,
   saveHunts,
   savePlaybooks,
   setHuntStage,
@@ -139,6 +141,7 @@ export function initHuntsView(container: HTMLElement, ctx: HuntsViewContext): vo
           <button data-htab="playbooks" class="${activeTab === "playbooks" ? "active" : ""}">📖 Playbooks</button>
         </div>
         <div class="hunts-toolbar-actions">
+          <button id="btn-check-intel" title="Pull new items from the daily threat-intel feed into the Ideas column">📡 Check for Intel</button>
           <button id="btn-backup" title="Download all hunts + playbooks as a JSON backup">⬇ Backup</button>
           <button id="btn-restore" title="Restore hunts + playbooks from a JSON backup (merges, never overwrites)">⬆ Restore</button>
           <button id="btn-all-report" title="Download every hunt as one combined text report">📄 All Hunts Report</button>
@@ -153,6 +156,34 @@ export function initHuntsView(container: HTMLElement, ctx: HuntsViewContext): vo
         activeTab = btn.dataset.htab as HuntsTab;
         render();
       });
+    });
+
+    container.querySelector("#btn-check-intel")!.addEventListener("click", async () => {
+      const btn = container.querySelector<HTMLButtonElement>("#btn-check-intel")!;
+      btn.disabled = true;
+      btn.textContent = "📡 Checking…";
+      try {
+        // Same-origin static file, published alongside ThreatPad (not part of
+        // its own build output, so a rebuild/redeploy never clobbers it).
+        // Only ever fetched here, on an explicit click — never automatically.
+        const res = await fetch("../threat-intel/feed.json", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const feed = parseIntelFeed(await res.text());
+        if (!feed) throw new Error("unrecognized feed format");
+        const seenIntelIds = new Set(hunts.map((h) => h.intelId).filter(Boolean));
+        const newItems = feed.items.filter((it) => !seenIntelIds.has(it.id));
+        if (newItems.length === 0) {
+          ctx.flashStatus(feed.items.length ? "No new intel — already imported" : "Intel feed has nothing new today");
+        } else {
+          for (const item of newItems) hunts.push(huntFromIntelItem(item));
+          saveHunts(hunts);
+          ctx.flashStatus(`Added ${newItems.length} new intel idea(s) to the Ideas column`);
+        }
+      } catch (e) {
+        ctx.flashStatus(`Couldn't load intel feed: ${(e as Error).message}`);
+      } finally {
+        render();
+      }
     });
 
     container.querySelector("#btn-backup")!.addEventListener("click", () => {
@@ -212,7 +243,7 @@ export function initHuntsView(container: HTMLElement, ctx: HuntsViewContext): vo
     return `
       <div class="kanban-card" draggable="true" data-hunt-id="${h.id}">
         <div class="kanban-card-top">
-          <span class="ticket-id-mini">${ticketLabel(h)}</span>
+          <span class="ticket-id-mini">${ticketLabel(h)}${h.intelId ? ` <span title="From the daily threat-intel feed">📡</span>` : ""}</span>
           <span class="priority-dot priority-${h.priority}" title="${HUNT_PRIORITY_LABELS[h.priority]} priority"></span>
         </div>
         <div class="kanban-card-title">${escapeHtml(h.title)}</div>
@@ -482,7 +513,7 @@ export function initHuntsView(container: HTMLElement, ctx: HuntsViewContext): vo
         </div>
 
         <div class="ticket-meta-line">
-          Created ${relTime(hunt.createdAt)} · Updated ${relTime(hunt.updatedAt)}${hunt.closedAt ? ` · Closed ${relTime(hunt.closedAt)}` : ""}
+          Created ${relTime(hunt.createdAt)} · Updated ${relTime(hunt.updatedAt)}${hunt.closedAt ? ` · Closed ${relTime(hunt.closedAt)}` : ""}${hunt.intelId ? " · 📡 From daily threat-intel feed" : ""}
           ${due ? `<span class="due-badge" title="Recurring hunt — due for another look">⏰ Due for review</span>` : ""}
         </div>
 

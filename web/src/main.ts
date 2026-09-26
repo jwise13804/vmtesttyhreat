@@ -863,6 +863,10 @@ document.querySelector("#btn-help")!.addEventListener("click", () => {
         a hunt reaches Results or later, and fades as that coverage ages (30/90 days)</li>
         <li><b>📖 Playbooks</b> — a library of reusable hunt starting points, one click to spin
         up a pre-filled hunt in the Hypothesis column</li>
+        <li><b>📡 Check for Intel</b> (top-right of the Hunts view) — fetches a small JSON feed
+        (published alongside ThreatPad, e.g. by a separate scheduled process) and drops any new
+        items into the Ideas column as ready-to-work hunts, tagged with a 📡. Only ever runs when
+        you click it — never automatically, and nothing else in ThreatPad makes network calls</li>
         <li><b>⬇ Backup / ⬆ Restore / 📄 All Hunts Report</b> (top-right of the Hunts view) —
         export everything as a JSON backup, restore from one (merges by id, never overwrites),
         or download every hunt as one combined text report</li>
